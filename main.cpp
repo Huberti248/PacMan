@@ -58,10 +58,10 @@ using namespace std::chrono_literals;
 #include <emscripten/html5.h>
 #endif
 
-//240 x 240 (smart watch)
-//240 x 320 (QVGA)
-//360 x 640 (Galaxy S5)
-//640 x 480 (480i - Smallest PC monitor)
+// 240 x 240 (smart watch)
+// 240 x 320 (QVGA)
+// 360 x 640 (Galaxy S5)
+// 640 x 480 (480i - Smallest PC monitor)
 
 #define i8 int8_t
 #define i16 int16_t
@@ -71,6 +71,11 @@ using namespace std::chrono_literals;
 #define u16 uint16_t
 #define u32 uint32_t
 #define u64 uint64_t
+
+#define PLAYER_SPEED 1
+SDL_Color TILE_EMPTY_COLOR{ 125, 125, 125 };
+SDL_Color TILE_PLAYER_COLOR{ 0, 255, 0 };
+SDL_Color TILE_WALL_COLOR{ 80, 50, 50 };
 
 int windowWidth = 240;
 int windowHeight = 320;
@@ -479,11 +484,11 @@ float clamp(float n, float lower, float upper)
 
 std::string getCurrentDate()
 {
-	std::time_t t = std::time(0);
-	std::tm* now = std::localtime(&t);
-	std::stringstream ss;
-	ss << (now->tm_year + 1900) << "-" << (now->tm_mon + 1) << "-" << now->tm_mday;
-	return ss.str();
+    std::time_t t = std::time(0);
+    std::tm* now = std::localtime(&t);
+    std::stringstream ss;
+    ss << (now->tm_year + 1900) << "-" << (now->tm_mon + 1) << "-" << now->tm_mday;
+    return ss.str();
 }
 
 std::string readWholeFile(std::string path)
@@ -510,6 +515,35 @@ int eventWatch(void* userdata, SDL_Event* event)
     return 0;
 }
 
+enum class Direction {
+    Left,
+    Right,
+    Up,
+    Down
+};
+
+struct Entity {
+    SDL_Rect r{};
+    int dx = 0;
+    int dy = 0;
+    Direction d = Direction::Down;
+};
+
+struct Tile {
+    SDL_Rect r{};
+    SDL_Color c{};
+};
+
+bool operator==(SDL_Color c1, SDL_Color c2)
+{
+    return c1.r == c2.r && c1.g == c2.g && c1.b == c2.b && c1.a == c2.a;
+}
+
+bool operator!=(SDL_Color c1, SDL_Color c2)
+{
+    return c1.r != c2.r || c1.g != c2.g || c1.b != c2.b || c1.a != c2.a;
+}
+
 void run()
 {
     std::srand(std::time(0));
@@ -518,8 +552,10 @@ void run()
     SDL_Init(SDL_INIT_EVERYTHING);
     TTF_Init();
     SDL_GetMouseState(&mousePos.x, &mousePos.y);
-    window = SDL_CreateWindow("AppName_", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, windowWidth, windowHeight, SDL_WINDOW_RESIZABLE);
+    window = SDL_CreateWindow("PacMan", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, windowWidth, windowHeight, SDL_WINDOW_RESIZABLE);
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_Texture* mapT = IMG_LoadTexture(renderer, "res/map.png");
+    SDL_Texture* playerT = IMG_LoadTexture(renderer, "res/player.png");
     TTF_Font* robotoF = TTF_OpenFont("res/roboto.ttf", 72);
     int w, h;
     SDL_GetWindowSize(window, &w, &h);
@@ -533,7 +569,282 @@ void run()
     ImGui::StyleColorsDark();
     ImGui_ImplSDL2_InitForSDLRenderer(window);
     ImGui_ImplSDLRenderer_Init(renderer);
-    bool showDemoWindow = true;
+    bool showDemoWindow = false;
+    Entity p;
+    p.r.w = 14;
+    p.r.h = 14;
+    p.r.x = 96;
+    p.r.y = 230;
+    std::vector<Tile> map;
+    map.push_back(Tile());
+    map.back().r.x = 29;
+    map.back().r.y = 28;
+    map.back().r.w = 53 - map.back().r.x + 1;
+    map.back().r.h = 49 - map.back().r.y + 1;
+    map.back().c = TILE_WALL_COLOR;
+    map.push_back(map.front());
+    map.back().r.x = 68;
+    map.back().r.y = 28;
+    map.back().r.w = 99 - map.back().r.x + 1;
+    map.back().r.h = 49 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 114;
+    map.back().r.y = 8;
+    map.back().r.w = 122 - map.back().r.x + 1;
+    map.back().r.h = 49 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 137;
+    map.back().r.y = 28;
+    map.back().r.w = 168 - map.back().r.x + 1;
+    map.back().r.h = 49 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 183;
+    map.back().r.y = 28;
+    map.back().r.w = 206 - map.back().r.x + 1;
+    map.back().r.h = 49 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 10;
+    map.back().r.y = 3;
+    map.back().r.w = 225 - map.back().r.x + 1;
+    map.back().r.h = 9 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 10;
+    map.back().r.y = 9;
+    map.back().r.w = 14 - map.back().r.x + 1;
+    map.back().r.h = 104 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 221;
+    map.back().r.y = 9;
+    map.back().r.w = 225 - map.back().r.x + 1;
+    map.back().r.h = 104 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 29;
+    map.back().r.y = 68;
+    map.back().r.w = 53 - map.back().r.x + 1;
+    map.back().r.h = 79 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 68;
+    map.back().r.y = 68;
+    map.back().r.w = 76 - map.back().r.x + 1;
+    map.back().r.h = 138 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 76;
+    map.back().r.y = 97;
+    map.back().r.w = 99 - map.back().r.x + 1;
+    map.back().r.h = 109 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 91;
+    map.back().r.y = 68;
+    map.back().r.w = 145 - map.back().r.x + 1;
+    map.back().r.h = 79 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 114;
+    map.back().r.y = 79;
+    map.back().r.w = 122 - map.back().r.x + 1;
+    map.back().r.h = 109 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 183;
+    map.back().r.y = 68;
+    map.back().r.w = 206 - map.back().r.x + 1;
+    map.back().r.h = 79 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 160;
+    map.back().r.y = 68;
+    map.back().r.w = 168 - map.back().r.x + 1;
+    map.back().r.h = 138 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 137;
+    map.back().r.y = 98;
+    map.back().r.w = 160 - map.back().r.x + 1;
+    map.back().r.h = 109 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 14;
+    map.back().r.y = 98;
+    map.back().r.w = 53 - map.back().r.x + 1;
+    map.back().r.h = 104 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 49;
+    map.back().r.y = 104;
+    map.back().r.w = 53 - map.back().r.x + 1;
+    map.back().r.h = 138 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 11;
+    map.back().r.y = 133;
+    map.back().r.w = 49 - map.back().r.x + 1;
+    map.back().r.h = 138 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 183;
+    map.back().r.y = 98;
+    map.back().r.w = 221 - map.back().r.x + 1;
+    map.back().r.h = 104 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 183;
+    map.back().r.y = 104;
+    map.back().r.w = 188 - map.back().r.x + 1;
+    map.back().r.h = 138 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 188;
+    map.back().r.y = 133;
+    map.back().r.w = 224 - map.back().r.x + 1;
+    map.back().r.h = 139 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 91;
+    map.back().r.y = 128;
+    map.back().r.w = 144 - map.back().r.x + 1;
+    map.back().r.h = 134 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 91;
+    map.back().r.y = 134;
+    map.back().r.w = 95 - map.back().r.x + 1;
+    map.back().r.h = 168 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 95;
+    map.back().r.y = 163;
+    map.back().r.w = 144 - map.back().r.x + 1;
+    map.back().r.h = 168 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 140;
+    map.back().r.y = 134;
+    map.back().r.w = 144 - map.back().r.x + 1;
+    map.back().r.h = 163 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 11;
+    map.back().r.y = 158;
+    map.back().r.w = 53 - map.back().r.x + 1;
+    map.back().r.h = 163 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 49;
+    map.back().r.y = 163;
+    map.back().r.w = 53 - map.back().r.x + 1;
+    map.back().r.h = 198 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 10;
+    map.back().r.y = 193;
+    map.back().r.w = 49 - map.back().r.x + 1;
+    map.back().r.h = 198 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 10;
+    map.back().r.y = 198;
+    map.back().r.w = 15 - map.back().r.x + 1;
+    map.back().r.h = 313 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 15;
+    map.back().r.y = 247;
+    map.back().r.w = 30 - map.back().r.x + 1;
+    map.back().r.h = 258 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 15;
+    map.back().r.y = 307;
+    map.back().r.w = 225 - map.back().r.x + 1;
+    map.back().r.h = 313 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 220;
+    map.back().r.y = 193;
+    map.back().r.w = 225 - map.back().r.x + 1;
+    map.back().r.h = 307 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 183;
+    map.back().r.y = 193;
+    map.back().r.w = 220 - map.back().r.x + 1;
+    map.back().r.h = 198 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 183;
+    map.back().r.y = 158;
+    map.back().r.w = 187 - map.back().r.x + 1;
+    map.back().r.h = 193 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 187;
+    map.back().r.y = 158;
+    map.back().r.w = 224 - map.back().r.x + 1;
+    map.back().r.h = 163 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 68;
+    map.back().r.y = 158;
+    map.back().r.w = 76 - map.back().r.x + 1;
+    map.back().r.h = 198 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 160;
+    map.back().r.y = 158;
+    map.back().r.w = 168 - map.back().r.x + 1;
+    map.back().r.h = 198 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 91;
+    map.back().r.y = 188;
+    map.back().r.w = 145 - map.back().r.x + 1;
+    map.back().r.h = 198 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 114;
+    map.back().r.y = 198;
+    map.back().r.w = 122 - map.back().r.x + 1;
+    map.back().r.h = 228 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 30;
+    map.back().r.y = 217;
+    map.back().r.w = 53 - map.back().r.x + 1;
+    map.back().r.h = 228 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 45;
+    map.back().r.y = 228;
+    map.back().r.w = 53 - map.back().r.x + 1;
+    map.back().r.h = 258 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 182;
+    map.back().r.y = 217;
+    map.back().r.w = 205 - map.back().r.x + 1;
+    map.back().r.h = 228 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 182;
+    map.back().r.y = 228;
+    map.back().r.w = 191 - map.back().r.x + 1;
+    map.back().r.h = 258 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 137;
+    map.back().r.y = 217;
+    map.back().r.w = 167 - map.back().r.x + 1;
+    map.back().r.h = 228 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 68;
+    map.back().r.y = 217;
+    map.back().r.w = 99 - map.back().r.x + 1;
+    map.back().r.h = 228 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 30;
+    map.back().r.y = 277;
+    map.back().r.w = 99 - map.back().r.x + 1;
+    map.back().r.h = 288 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 137;
+    map.back().r.y = 277;
+    map.back().r.w = 205 - map.back().r.x + 1;
+    map.back().r.h = 288 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 68;
+    map.back().r.y = 247;
+    map.back().r.w = 76 - map.back().r.x + 1;
+    map.back().r.h = 277 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 206;
+    map.back().r.y = 247;
+    map.back().r.w = 220 - map.back().r.x + 1;
+    map.back().r.h = 258 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 159;
+    map.back().r.y = 247;
+    map.back().r.w = 167 - map.back().r.x + 1;
+    map.back().r.h = 277 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 91;
+    map.back().r.y = 247;
+    map.back().r.w = 144 - map.back().r.x + 1;
+    map.back().r.h = 258 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 114;
+    map.back().r.y = 258;
+    map.back().r.w = 122 - map.back().r.x + 1;
+    map.back().r.h = 288 - map.back().r.y + 1;
+    bool wantedLeftButWasNotAble = false, wantedRightButWasNotAble = false, wantedUpButWasNotAble = false, wantedDownButWasNotAble = false;
+    // TODO: Textures shouldn't disappear on window resize.
+    // TODO: Use deltaTime and delete SDL_Delay(16.666)?
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -566,6 +877,154 @@ void run()
                 realMousePos.y = event.motion.y;
             }
         }
+#if 1 // PLAYER_MOTION
+        p.dx = 0;
+        p.dy = 0;
+        if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) {
+            p.dx = -1;
+            p.d = Direction::Left;
+        }
+        if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) {
+            p.dx = 1;
+            p.d = Direction::Right;
+        }
+        if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) {
+            p.dy = -1;
+            p.d = Direction::Up;
+        }
+        if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) {
+            p.dy = 1;
+            p.d = Direction::Down;
+        }
+        SDL_Rect currpr = p.r;
+        p.r.x += p.dx * PLAYER_SPEED;
+        p.r.y += p.dy * PLAYER_SPEED;
+        p.r.x = std::clamp(p.r.x, 0, windowWidth - p.r.w);
+        p.r.y = std::clamp(p.r.y, 0, windowHeight - p.r.h);
+        bool corrected = false;
+        for (Tile& t : map) {
+            SDL_Rect xr = currpr;
+            xr.x += p.dx * PLAYER_SPEED;
+            if (t.c == TILE_WALL_COLOR && SDL_HasIntersection(&xr, &t.r)) {
+                if (p.dx == -1) {
+                    p.r.x = t.r.x + t.r.w;
+                    corrected = true;
+                }
+                if (p.dx == 1) {
+                    p.r.x = t.r.x - p.r.w;
+                    corrected = true;
+                }
+            }
+            SDL_Rect yr = currpr;
+            yr.y += p.dy * PLAYER_SPEED;
+            if (t.c == TILE_WALL_COLOR && SDL_HasIntersection(&yr, &t.r)) {
+                if (p.dy == -1) {
+                    p.r.y = t.r.y + t.r.h;
+                    corrected = true;
+                }
+                if (p.dy == 1) {
+                    p.r.y = t.r.y - p.r.h;
+                    corrected = true;
+                }
+            }
+        }
+        for (Tile& t : map) {
+            SDL_Rect xyr = currpr;
+            xyr.x += p.dx * PLAYER_SPEED;
+            xyr.y += p.dy * PLAYER_SPEED;
+            if (t.c == TILE_WALL_COLOR && SDL_HasIntersection(&xyr, &t.r) && !corrected) {
+                if (wantedLeftButWasNotAble && p.dx == -1) {
+                    if (p.dy == -1) {
+                        p.r.y = t.r.y + t.r.h;
+                    }
+                    if (p.dy == 1) {
+                        p.r.y = t.r.y - p.r.h;
+                    }
+                }
+                else if (wantedRightButWasNotAble && p.dx == 1) {
+                    if (p.dy == -1) {
+                        p.r.y = t.r.y + t.r.h;
+                    }
+                    if (p.dy == 1) {
+                        p.r.y = t.r.y - p.r.h;
+                    }
+                }
+                else if (wantedUpButWasNotAble && p.dy == -1) {
+                    if (p.dx == -1) {
+                        p.r.x = t.r.x + t.r.w;
+                    }
+                    if (p.dx == 1) {
+                        p.r.x = t.r.x - p.r.w;
+                    }
+                }
+                else if (wantedDownButWasNotAble && p.dy == 1) {
+                    if (p.dx == -1) {
+                        p.r.x = t.r.x + t.r.w;
+                    }
+                    if (p.dx == 1) {
+                        p.r.x = t.r.x - p.r.w;
+                    }
+                }
+                else {
+                    if (p.dx == 1) {
+                        if (p.dy == -1) {
+                            p.r.y = t.r.y + t.r.h;
+                        }
+                        if (p.dy == 1) {
+                            p.r.y = t.r.y - p.r.h;
+                        }
+                    }
+                    else if (p.dy == 1) {
+                        if (p.dx == -1) {
+                            p.r.x = t.r.x + t.r.w;
+                        }
+                        if (p.dx == 1) {
+                            p.r.x = t.r.x - p.r.w;
+                        }
+                    }
+                    else if (p.dx == -1) {
+                        if (p.dy == -1) {
+                            p.r.y = t.r.y + t.r.h;
+                        }
+                        if (p.dy == 1) {
+                            p.r.y = t.r.y - p.r.h;
+                        }
+                    }
+                    else if (p.dy == -1) {
+                        if (p.dx == -1) {
+                            p.r.x = t.r.x + t.r.w;
+                        }
+                        if (p.dx == 1) {
+                            p.r.x = t.r.x - p.r.w;
+                        }
+                    }
+                }
+            }
+        }
+        wantedLeftButWasNotAble = wantedRightButWasNotAble = wantedUpButWasNotAble = wantedDownButWasNotAble = false;
+        for (Tile& t : map) {
+            SDL_Rect xr = currpr;
+            xr.x += p.dx * PLAYER_SPEED;
+            if (t.c == TILE_WALL_COLOR && SDL_HasIntersection(&xr, &t.r)) {
+                if (p.dx == -1) {
+                    wantedLeftButWasNotAble = true;
+                }
+                if (p.dx == 1) {
+                    wantedRightButWasNotAble = true;
+                }
+            }
+            SDL_Rect yr = currpr;
+            yr.y += p.dy * PLAYER_SPEED;
+            if (t.c == TILE_WALL_COLOR && SDL_HasIntersection(&yr, &t.r)) {
+                if (p.dy == -1) {
+                    wantedUpButWasNotAble = true;
+                }
+                if (p.dy == 1) {
+                    wantedDownButWasNotAble = true;
+                }
+            }
+        }
+#endif
         ImGui_ImplSDLRenderer_NewFrame();
         ImGui_ImplSDL2_NewFrame(window);
         io.MousePos.x = mousePos.x;
@@ -578,7 +1037,10 @@ void run()
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
         ImGui_ImplSDLRenderer_RenderDrawData(ImGui::GetDrawData());
+        SDL_RenderCopyF(renderer, mapT, 0, 0);
+        SDL_RenderCopy(renderer, playerT, 0, &p.r);
         SDL_RenderPresent(renderer);
+        SDL_Delay(16.666);
     }
     // NOTE: On mobile remember to use eventWatch function (it doesn't reach this code when terminating)
 }
