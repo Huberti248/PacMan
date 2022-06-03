@@ -1,3 +1,13 @@
+// TODO: Textures shouldn't disappear on window resize.
+// TODO: Use deltaTime and delete SDL_Delay(16.666)?
+// TODO: Add moving ghosts. Maybe get position of random pointRect (they should exist even after collecting them by the player) and use A* to go to that point? How to put random pointRect into A* algorithm?
+// TODO: Add animation to player.
+// TODO: Add teleport?
+// TODO: Add gameover and win states.
+// TODO: Add eating of ghosts.
+// TODO: Add big points on the map?
+// TODO: Add sounds and music?
+// TODO: Remember to add source code to disk drive on project end.
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_mixer.h>
@@ -73,6 +83,7 @@ using namespace std::chrono_literals;
 #define u64 uint64_t
 
 #define PLAYER_SPEED 1
+#define TILE_SIZE 8
 SDL_Color TILE_EMPTY_COLOR{ 125, 125, 125 };
 SDL_Color TILE_PLAYER_COLOR{ 0, 255, 0 };
 SDL_Color TILE_WALL_COLOR{ 80, 50, 50 };
@@ -527,11 +538,31 @@ struct Entity {
     int dx = 0;
     int dy = 0;
     Direction d = Direction::Down;
+    SDL_Rect destinationPointR{};
 };
 
 struct Tile {
     SDL_Rect r{};
     SDL_Color c{};
+};
+
+struct Node {
+    SDL_Rect r{};
+    int g = 0;
+    int h = 0;
+    int parentIndexInClosedNodes = -1;
+
+    // NOTE: Diagonal movement cost must be same as horizontal and vertical
+    int diagonalDistance(SDL_Rect dst)
+    {
+        int movementCost = 1;
+        return movementCost * std::max(std::abs(r.x - dst.x), std::abs(r.y - dst.y));
+    }
+
+    int getF()
+    {
+        return g + h;
+    }
 };
 
 bool operator==(SDL_Color c1, SDL_Color c2)
@@ -542,6 +573,36 @@ bool operator==(SDL_Color c1, SDL_Color c2)
 bool operator!=(SDL_Color c1, SDL_Color c2)
 {
     return c1.r != c2.r || c1.g != c2.g || c1.b != c2.b || c1.a != c2.a;
+}
+
+bool operator==(SDL_Point p1, SDL_Point p2)
+{
+    return p1.x == p2.x && p1.y == p2.y;
+}
+
+bool operator!=(SDL_Point p1, SDL_Point p2)
+{
+    return p1.x != p2.x || p1.y != p2.y;
+}
+
+bool operator==(SDL_Rect r1, SDL_Rect r2)
+{
+    return r1.x == r2.x && r1.y == r2.y && r1.w == r2.w && r1.h == r2.h;
+}
+
+bool operator!=(SDL_Rect r1, SDL_Rect r2)
+{
+    return r1.x != r2.x || r1.y != r2.y || r1.w != r2.w || r1.h != r2.h;
+}
+
+bool operator==(Node n1, Node n2)
+{
+    return n1.r == n2.r;
+}
+
+bool operator!=(Node n1, Node n2)
+{
+    return n1.r != n2.r;
 }
 
 void run()
@@ -556,6 +617,9 @@ void run()
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     SDL_Texture* mapT = IMG_LoadTexture(renderer, "res/map.png");
     SDL_Texture* playerT = IMG_LoadTexture(renderer, "res/player.png");
+    SDL_Texture* pinkGhost = IMG_LoadTexture(renderer, "res/pinkGhost.png");
+    SDL_Texture* blueGhost = IMG_LoadTexture(renderer, "res/blueGhost.png");
+    SDL_Texture* orangeGhost = IMG_LoadTexture(renderer, "res/orangeGhost.png");
     TTF_Font* robotoF = TTF_OpenFont("res/roboto.ttf", 72);
     int w, h;
     SDL_GetWindowSize(window, &w, &h);
@@ -689,6 +753,11 @@ void run()
     map.back().r.h = 139 - map.back().r.y + 1;
     map.push_back(map.front());
     map.back().r.x = 91;
+    map.back().r.y = 128;
+    map.back().r.w = 107 - map.back().r.x + 1;
+    map.back().r.h = 134 - map.back().r.y + 1;
+    map.push_back(map.front());
+    map.back().r.x = 128;
     map.back().r.y = 128;
     map.back().r.w = 144 - map.back().r.x + 1;
     map.back().r.h = 134 - map.back().r.y + 1;
@@ -842,9 +911,152 @@ void run()
     map.back().r.y = 258;
     map.back().r.w = 122 - map.back().r.x + 1;
     map.back().r.h = 288 - map.back().r.y + 1;
+    int mapSizeBeforeAddingTilesThatAreNotWalls = map.size();
+    for (int x = 0; x < windowWidth; ++x) {
+        for (int y = 0; y < windowHeight; ++y) {
+            Tile tile;
+            tile.r.w = 1;
+            tile.r.h = 1;
+            tile.r.x = x;
+            tile.r.y = y;
+            bool hasIntersection = false;
+            for (int i = 0; i < mapSizeBeforeAddingTilesThatAreNotWalls; ++i) {
+                if (SDL_HasIntersection(&tile.r, &map[i].r)) {
+                    hasIntersection = true;
+                    break;
+                }
+            }
+            if (!hasIntersection) {
+                map.push_back(tile);
+            }
+        }
+    }
     bool wantedLeftButWasNotAble = false, wantedRightButWasNotAble = false, wantedUpButWasNotAble = false, wantedDownButWasNotAble = false;
-    // TODO: Textures shouldn't disappear on window resize.
-    // TODO: Use deltaTime and delete SDL_Delay(16.666)?
+    std::vector<SDL_Rect> pointRects;
+    pointRects.push_back(SDL_Rect());
+    pointRects.back().w = 2;
+    pointRects.back().h = 2;
+    pointRects.back().x = 22;
+    pointRects.back().y = 18;
+    for (int i = 0; i < 11; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x += 8;
+    }
+    for (int i = 0; i < 4; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y += 10;
+    }
+    for (int i = 0; i < 11; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x -= 8;
+    }
+    for (int i = 0; i < 3; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y -= 10;
+    }
+    pointRects.push_back(pointRects[5]);
+    pointRects.back().y += 10;
+    for (int i = 0; i < 24; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y += 10;
+    }
+    pointRects.push_back(pointRects[26]);
+    pointRects.back().y += 10;
+    for (int i = 0; i < 2; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y += 10;
+    }
+    for (int i = 0; i < 4; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x += 8;
+    }
+    pointRects.push_back(pointRects[18]);
+    pointRects.back().y += 10;
+    for (int i = 0; i < 2; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y += 10;
+    }
+    for (int i = 0; i < 3; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x += 8;
+    }
+    pointRects.push_back(pointRects[54]);
+    pointRects.back().x -= 8;
+    for (int i = 0; i < 4; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x -= 8;
+    }
+    pointRects.push_back(pointRects[70]);
+    pointRects.back().y -= 10;
+    for (int i = 0; i < 2; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y -= 10;
+    }
+    for (int i = 0; i < 2; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x -= 8;
+    }
+    for (int i = 0; i < 3; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y -= 10;
+    }
+    for (int i = 0; i < 10; ++i) {
+        if (i == 4) {
+            pointRects.push_back(pointRects.back());
+            pointRects.back().x += 16;
+        }
+        else {
+            pointRects.push_back(pointRects.back());
+            pointRects.back().x += 8;
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y += 10;
+    }
+    for (int i = 0; i < 5; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x -= 8;
+    }
+    pointRects.push_back(pointRects[pointRects.size() - 3]);
+    pointRects.back().y += 10;
+    for (int i = 0; i < 2; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y += 10;
+    }
+    for (int i = 0; i < 3; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x += 8;
+    }
+    for (int i = 0; i < 3; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y += 10;
+    }
+    for (int i = 0; i < 11; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().x -= 8;
+    }
+    for (int i = 0; i < 2; ++i) {
+        pointRects.push_back(pointRects.back());
+        pointRects.back().y -= 10;
+    }
+    int currentPointRectsSize = pointRects.size();
+    for (int i = 0; i < currentPointRectsSize; ++i) {
+        pointRects.push_back(pointRects[i]);
+        pointRects.back().x = windowWidth - pointRects.back().x;
+    }
+    std::vector<SDL_Rect> pointRectsForGhostsMovement = pointRects;
+    std::vector<Entity> ghosts;
+    ghosts.push_back(p);
+    ghosts.back().r.x = 127;
+    ghosts.back().r.y = 139;
+    ghosts.push_back(ghosts.back());
+    ghosts.back().r.x -= ghosts.back().r.w;
+    ghosts.push_back(ghosts.back());
+    ghosts.back().r.x -= ghosts.back().r.w;
+    for (int i = 0; i < ghosts.size(); ++i) {
+        ghosts[i].destinationPointR = pointRectsForGhostsMovement[random(0, pointRectsForGhostsMovement.size() - 2)];
+    }
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -1025,6 +1237,90 @@ void run()
             }
         }
 #endif
+#if 1 // GHOSTS_MOTION
+      // NOTE: Ghosts motion can work like they go to pointRectsForGhostsMovement because the player needs to collect points.
+      // TODO: Fix it so that it won't go through walls.
+      // TODO: Use ghosts.size() below instead of 1.
+        for (int i = 0; i < 0; ++i) {
+            Node startNode;
+            startNode.r = ghosts[i].r;
+            startNode.h = startNode.diagonalDistance(ghosts[i].destinationPointR);
+            std::vector<Node> openNodes;
+            std::vector<Node> closedNodes;
+            openNodes.push_back(startNode);
+            while (!openNodes.empty()) {
+                int lowestFScoreIndex = openNodes.size() - 1;
+                for (int i = 0; i < openNodes.size() - 1; ++i) {
+                    if (openNodes[i].getF() < openNodes[lowestFScoreIndex].getF()) {
+                        lowestFScoreIndex = i;
+                    }
+                }
+                Node curr = openNodes[lowestFScoreIndex];
+                openNodes.erase(openNodes.begin() + lowestFScoreIndex);
+                closedNodes.push_back(curr);
+                if (SDL_HasIntersection(&curr.r, &ghosts[i].destinationPointR)) {
+                    // NOTE: Path has been found.
+                    Node* dstNode = &curr;
+                    while (dstNode->parentIndexInClosedNodes != -1 && closedNodes[dstNode->parentIndexInClosedNodes].parentIndexInClosedNodes != -1) {
+                        dstNode = &closedNodes[dstNode->parentIndexInClosedNodes];
+                    }
+                    ghosts[i].r = dstNode->r;
+                    break;
+                }
+                std::vector<Node> adj(8);
+                for (Node& n : adj) {
+                    n.r = closedNodes.back().r;
+                }
+                adj[0].r.x += -TILE_SIZE;
+                adj[1].r.x += TILE_SIZE;
+                adj[2].r.y += -TILE_SIZE;
+                adj[3].r.y += TILE_SIZE;
+                adj[4].r.x += -TILE_SIZE;
+                adj[4].r.y += -TILE_SIZE;
+                adj[5].r.x += TILE_SIZE;
+                adj[5].r.y += -TILE_SIZE;
+                adj[6].r.x += -TILE_SIZE;
+                adj[6].r.y += TILE_SIZE;
+                adj[7].r.x += TILE_SIZE;
+                adj[7].r.y += TILE_SIZE;
+                for (Node& n : adj) {
+                    bool ok = false;
+                    for (Tile& t : map) {
+                        if (SDL_HasIntersection(&n.r, &t.r) && t.c != TILE_WALL_COLOR && std::find(closedNodes.begin(), closedNodes.end(), n) == closedNodes.end()) {
+                            ok = true;
+                        }
+                    }
+                    if (ok) {
+                        // TODO: Should I calc n.g somewhere before?
+                        int newMovementCostToN = curr.g + curr.diagonalDistance(n.r);
+                        if (newMovementCostToN < n.g || std::find(openNodes.begin(), openNodes.end(), n) == openNodes.end()) {
+                            n.g = newMovementCostToN;
+                            n.h = n.diagonalDistance(ghosts[i].destinationPointR);
+                            for (int i = 0; i < closedNodes.size(); ++i) {
+                                if (closedNodes[i] == curr) {
+                                    n.parentIndexInClosedNodes = i;
+                                    break;
+                                }
+                            }
+                            if (std::find(openNodes.begin(), openNodes.end(), n) == openNodes.end()) {
+                                openNodes.push_back(n);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+#endif
+        for (int i = 0; i < ghosts.size(); ++i) {
+            if (SDL_HasIntersection(&ghosts[i].r, &ghosts[i].destinationPointR)) {
+                ghosts[i].destinationPointR = pointRectsForGhostsMovement[random(0, pointRectsForGhostsMovement.size() - 2)];
+            }
+        }
+        for (int i = 0; i < pointRects.size(); ++i) {
+            if (SDL_HasIntersection(&p.r, &pointRects[i])) {
+                pointRects.erase(pointRects.begin() + i--);
+            }
+        }
         ImGui_ImplSDLRenderer_NewFrame();
         ImGui_ImplSDL2_NewFrame(window);
         io.MousePos.x = mousePos.x;
@@ -1038,9 +1334,29 @@ void run()
         SDL_RenderClear(renderer);
         ImGui_ImplSDLRenderer_RenderDrawData(ImGui::GetDrawData());
         SDL_RenderCopyF(renderer, mapT, 0, 0);
+        for (int i = 0; i < pointRects.size(); ++i) {
+            if (pointRects[i].x == 62 && pointRects[i].y == 28 || pointRects[i].x == 38 && pointRects[i].y == 268 || pointRects[i].x == 194 && pointRects[i].y == 88 || pointRects[i].x == 186 && pointRects[i].y == 208) {
+                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 0);
+                SDL_RenderFillCircle(renderer, pointRects[i].x + pointRects[i].w / 2, pointRects[i].y + pointRects[i].h / 2, 3);
+            }
+            else {
+                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 0);
+                SDL_RenderFillRect(renderer, &pointRects[i]);
+            }
+        }
         SDL_RenderCopy(renderer, playerT, 0, &p.r);
+        for (int i = 0; i < ghosts.size(); ++i) {
+            if (i == 0) {
+                SDL_RenderCopy(renderer, orangeGhost, 0, &ghosts[i].r);
+            }
+            else if (i == 1) {
+                SDL_RenderCopy(renderer, blueGhost, 0, &ghosts[i].r);
+            }
+            else if (i == 2) {
+                SDL_RenderCopy(renderer, pinkGhost, 0, &ghosts[i].r);
+            }
+        }
         SDL_RenderPresent(renderer);
-        SDL_Delay(16.666);
     }
     // NOTE: On mobile remember to use eventWatch function (it doesn't reach this code when terminating)
 }
