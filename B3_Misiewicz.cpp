@@ -1,4 +1,6 @@
 // NOTE: Clone github repository to get files necessary to compile project: https://github.com/Huberti248/PacMan
+// TODO: Add animation to player.
+// TODO: Remember to add source code to disk drive on project end.
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_mixer.h>
@@ -1409,28 +1411,11 @@ gameBegin:
                 SDL_RenderFillRect(renderer, &pointRects[i]);
             }
         }
-        SDL_RendererFlip playerFlip;
-        if (p.d == Direction::Left) {
-            playerFlip = SDL_FLIP_HORIZONTAL;
-        }
-        else {
-            playerFlip = SDL_FLIP_NONE;
-        }
-        int angle;
-        if (p.d==Direction::Up) {
-            angle = 270;
-        }
-        else if (p.d == Direction::Down) {
-            angle = 90;
-        }
-        else {
-            angle = 0;
-        }
         if (shouldShowFirstPlayerTexture) {
-            SDL_RenderCopyEx(renderer, playerT, 0, &p.r, angle, 0, playerFlip);
+            SDL_RenderCopy(renderer, playerT, 0, &p.r);
         }
         else {
-            SDL_RenderCopyEx(renderer, player2T, 0, &p.r, angle, 0, playerFlip);
+            SDL_RenderCopy(renderer, player2T, 0, &p.r);
         }
         for (int i = 0; i < ghosts.size(); ++i) {
             if (isAbleToEatGhosts) {
