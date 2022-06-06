@@ -479,6 +479,9 @@ SDL_bool SDL_HasIntersectionF(const SDL_FRect* A, const SDL_FRect* B)
     return SDL_TRUE;
 }
 
+#undef max
+#undef min
+
 float clamp(float n, float lower, float upper)
 {
     return std::max(lower, std::min(n, upper));
@@ -1117,6 +1120,7 @@ gameBegin:
                 realMousePos.y = event.motion.y;
             }
         }
+        SDL_Rect beforeMotionPlayerR = p.r;
 #if 1 // PLAYER_MOTION
         if (playerMotionClock.getElapsedTime() > 10) {
             playerMotionClock.restart();
@@ -1141,8 +1145,8 @@ gameBegin:
             SDL_Rect currpr = p.r;
             p.r.x += p.dx * PLAYER_SPEED;
             p.r.y += p.dy * PLAYER_SPEED;
-            p.r.x = std::clamp(p.r.x, 0, windowWidth - p.r.w);
-            p.r.y = std::clamp(p.r.y, 0, windowHeight - p.r.h);
+            p.r.x = clamp(p.r.x, 0, windowWidth - p.r.w);
+            p.r.y = clamp(p.r.y, 0, windowHeight - p.r.h);
             bool corrected = false;
             for (Tile& t : map) {
                 SDL_Rect xr = currpr;
@@ -1409,22 +1413,39 @@ gameBegin:
                 SDL_RenderFillRect(renderer, &pointRects[i]);
             }
         }
-        SDL_RendererFlip playerFlip;
-        if (p.d == Direction::Left) {
-            playerFlip = SDL_FLIP_HORIZONTAL;
-        }
-        else {
+        static int angle;
+        static SDL_RendererFlip playerFlip = SDL_FLIP_NONE;
+        if (p.r.x == beforeMotionPlayerR.x && p.r.y < beforeMotionPlayerR.y) {
+            angle = 270;
             playerFlip = SDL_FLIP_NONE;
         }
-        int angle;
-        if (p.d==Direction::Up) {
-            angle = 270;
-        }
-        else if (p.d == Direction::Down) {
-            angle = 90;
-        }
-        else {
+        else if (p.r.x > beforeMotionPlayerR.x && p.r.y < beforeMotionPlayerR.y) {
             angle = 0;
+            playerFlip = SDL_FLIP_NONE;
+        }
+        else if (p.r.x > beforeMotionPlayerR.x && p.r.y == beforeMotionPlayerR.y) {
+            angle = 0;
+            playerFlip = SDL_FLIP_NONE;
+        }
+        else if (p.r.x > beforeMotionPlayerR.x && p.r.y > beforeMotionPlayerR.y) {
+            angle = 0;
+            playerFlip = SDL_FLIP_NONE;
+        }
+        else if (p.r.x == beforeMotionPlayerR.x && p.r.y > beforeMotionPlayerR.y) {
+            angle = 90;
+            playerFlip = SDL_FLIP_NONE;
+        }
+        else if (p.r.x < beforeMotionPlayerR.x && p.r.y > beforeMotionPlayerR.y) {
+            angle = 0;
+            playerFlip = SDL_FLIP_HORIZONTAL;
+        }
+        else if (p.r.x < beforeMotionPlayerR.x && p.r.y == beforeMotionPlayerR.y) {
+            angle = 0;
+            playerFlip = SDL_FLIP_HORIZONTAL;
+        }
+        else if (p.r.x < beforeMotionPlayerR.x && p.r.y < beforeMotionPlayerR.y) {
+            angle = 0;
+            playerFlip = SDL_FLIP_HORIZONTAL;
         }
         if (shouldShowFirstPlayerTexture) {
             SDL_RenderCopyEx(renderer, playerT, 0, &p.r, angle, 0, playerFlip);
